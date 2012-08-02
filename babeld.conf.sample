@@ -1,0 +1,146 @@
+# babel config file
+#
+# You should not need to use a configuration file; all configuration
+# variables have reasonable defaults.  If you want to use one, you
+# can copy this to /etc/babeld.conf
+#
+# Copyright (C) 2008-2010 Juliusz Chroboczek, L. Aaron Kaplan
+#   <jch@pps.jussieu.fr> , <aaron@lo-res.org>
+#
+# This config file simply documents sample entries and explains basic
+# routing in babel.
+
+########################################################################
+# Preliminaries
+#
+# "redistribute" means: redistribute routes from other routing protocols
+# into babel. "local" means addresses assigned to local interfaces.
+#
+# the default rules are:
+#
+## redistribute local 
+## redistribute deny
+#
+# this says, redistribute local addresses but no other routes
+#
+# Any routes that you redistribute into Babel must have an explicit
+# protocol attached.  If you use another routing daemon, it should do
+# that right.  If you install your routes manually, you need to specify
+# ``proto static'' on the ``ip'' command line.  So if you used to say
+# 
+#    # route add default gw 1.2.3.4
+# 
+# you now need to say
+# 
+#     # ip route add default via 1.2.3.4 proto static
+# 
+# You can check whether your current routes can be redistributed into
+# Babel by typing ``ip route show''.  If a route has no ``proto'' field,
+# Babel will ignore it.  (If it says ``proto 42'', it's a Babel route.)
+
+########################################################################
+# simple rules
+#
+# redistribute IPv4 default route into babel 
+#   redistribute local ip 0.0.0.0/0 le 0 metric 128
+#
+# same but for IPv6
+#   redistribute local ip ::/0 le 0 metric 128
+#
+# don't redistribute all local addresses, only selected ones
+# after the first line, the "deny" rules kicks in. After the "deny"
+# no redistribute local rules are going to match
+#   redistribute local ip 192.160.4.0/24 
+#   redistribute local deny
+#
+# Babel refuses to redistribute routes with a protocol number of "boot";
+# this is standard practice, and means that you cannot easily
+# redistribute the default route installed by dhcp.  It is however
+# possible to redistribute such route by explicitly specifying "proto 3"
+# on the redistribute line.
+#   redistribute ip 0.0.0.0/0 le 0 proto 3 metric 128
+
+########################################################################
+# 1. Ordinary mesh node
+#
+# Pirx only participates in Babel routing, and does not serve as a gateway.
+# It only redistributes its local addresses, and redistributes all of them,
+# so no babel.conf is necessary.
+
+########################################################################
+# 2. Mesh node with a wired link, no redistribution
+#
+# Beta is a mesh node that happens to be attached to an Ethernet.  It
+# has a single IPv6 address, but two IPv4 addresses: 192.168.4.26 on the
+# mesh network, and 192.168.1.26 on the Ethernet; it redistributes its
+# IPv6 address, its IPv4 mesh address, but not its Ethernet address.
+#
+# Its babel.conf says:
+#
+#   redistribute local ip 192.168.4.0/24
+#   redistribute local ip ::/0
+#   redistribute local deny
+
+########################################################################
+# 3. IPv4 gateway
+#
+# Coloquinte is our Ipv4 gateway.  It redistributes its IPv6 address,
+# and a default route to the IPv4 Internet.  It does not redistribute
+# its own IPv4 address, which is subsumed by the default route:
+#
+#   redistribute local ip ::/0
+#   redistribute local deny
+#   redistribute 0.0.0.0/0 le 0 metric 128
+#
+# The ``le 0'' means that only the default route will be redistributed,
+# which avoids issues if coloquinte were to acquire additional IPv4
+# routes.
+
+########################################################################
+# 4. Traditional gateway
+#
+# One of my users has a number of pure IPv4 mesh nodes, each of which is
+# on its own /28.  The various /28 are disjoint, so there's no need to
+# redistribute local addresses in addition to the /28 routes:
+#
+#   redistribute local deny
+#   redistribute ip 10.0.0.0/8 le 28 metric 128
+
+########################################################################
+# 5. IPv6 gateway
+#
+# Alpha is similar to Beta, but it additionally participates in RIPng
+# routing and redistributes the default route into the mesh network:
+#
+#   redistribute local ip 192.168.4.0/24
+#   redistribute local ip ::/0
+#   redistribute local deny
+#   redistribute ip ::/0 le 0 metric 196
+#
+# Again, ``le 0'' is used to only redistribute the default route; this
+# avoids dumping the whole RIPng routing table of Paris 6 and 7 into the
+# mesh network.
+
+########################################################################
+# 6. Hybrid gateway
+#
+# Huponomos is another IPv6 gateway, but it also plays a role with
+# respect to IPv4 routing.  In addition to everything that alpha does,
+# it redistributes its local address in 134.157.168.0/24, as well as
+# a local route to 134.157.168.0/25 (that's not a typo: /25, not /24 --
+# the /24 is subnetted).  It has some other IPv4 addresses, which it
+# does not redistribute.  Additionally, it rejects any IPv6 routes that
+# come from coloquinte (2001:41d0:1:6364::1):
+#
+#   redistribute local ip ::/0
+#   redistribute local ip 134.157.168.0/24
+#   redistribute local ip 192.168.4.0/24
+#   redistribute local deny
+#   redistribute ip ::/0 eq 0 proto 11 metric 128
+#   redistribute ip 134.157.168.0/24 le 25 metric 128
+#   in ip ::/0 le 32 id 2001:41d0:1:6364::1 deny
+#
+# Note that the default IPv6 route is redistributed with metric 128,
+# while alpha redistributes it with the slightly larger metric 196; this
+# is so that traffic from beta, which is a neighbour of both, will flow
+# through huponomos rather than alpha.
